@@ -207,37 +207,56 @@ def main():
         print(f"❌ Failed to predict risks: {e}")
         return
     
-    # Apply temporal smoothing
-    print("\n[5/5] Applying Temporal Smoothing...")
-    window_size = 5
-    risk_window = deque(maxlen=window_size)
-    smoothed_predictions = []
-    
-    for risk in risk_predictions:
-        risk_window.append(risk)
-        smoothed_risk = max(risk_window) if risk_window else risk
-        smoothed_predictions.append(smoothed_risk)
-    
-    print(f"✓ Applied {window_size}-frame smoothing window")
-    
-    # Calculate numeric scores
+    # Apply fusion of numeric score and text-model, then temporal smoothing
+    print("\n[5/5] Merging numeric scores with text-model and applying smoothing...")
+
+    # 1) Compute numeric scores per frame
     numeric_scores = []
-    for frame_data, desc in zip(raw_frame_data, descriptions):
+    for frame_data in raw_frame_data:
         speed_cat = map_speed_category(frame_data.get("ego_speed", "slow"))
         score = risk_calc.calculate_risk_score(frame_data, speed_cat)
         numeric_scores.append(score)
+
+    # 2) Helper: merge labels (model_label:int, numeric_label:str) -> final int label
+    def merge_labels(model_label, numeric_label):
+        if numeric_label == "DANGER":
+            return 2
+        if numeric_label == "SAFE" and model_label == 0:
+            return 0
+        if model_label == 2 or numeric_label == "CAUTION":
+            return 1
+        return int(model_label)
+
+    # 3) Compute merged label per frame
+    merged_predictions = []
+    numeric_label_list = []
+    for model_lab, score in zip(risk_predictions, numeric_scores):
+        nlabel = risk_calc.score_to_label(score)
+        numeric_label_list.append(nlabel)
+        merged = merge_labels(int(model_lab), nlabel)
+        merged_predictions.append(merged)
+
+    # 4) Temporal smoothing (keep max in window to preserve high-risk events)
+    window_size = 5
+    risk_window = deque(maxlen=window_size)
+    smoothed_predictions = []
+    for lab in merged_predictions:
+        risk_window.append(int(lab))
+        smoothed_predictions.append(max(risk_window))
+
+    print(f"✓ Computed numeric scores and applied {window_size}-frame smoothing window")
     
     # ============ WRITE FRAME-LEVEL MODEL PREDICTIONS CSV ============
-    # Columns: Start_Frame (frame_id), Pred_Label (model output), Description, Numeric_Score, Phone_Risk, Smoothed_Label
+    # Columns: frame_id, model_label, numeric_label, merged_label, description, numeric_score, phone_risk, smoothed_label
     preds_csv = os.path.join(os.getcwd(), "model_predictions.csv")
     try:
         with open(preds_csv, "w", newline="", encoding="utf-8") as cf:
             writer = csv.writer(cf)
-            writer.writerow(["frame_id", "pred_label", "description", "numeric_score", "phone_risk", "smoothed_label"])
-            for i, (desc, pred, smoothed, score) in enumerate(zip(descriptions, risk_predictions, smoothed_predictions, numeric_scores)):
+            writer.writerow(["frame_id", "model_label", "numeric_label", "merged_label", "description", "numeric_score", "phone_risk", "smoothed_label"])
+            for i, (desc, model_lab, nlabel, merged, score) in enumerate(zip(descriptions, risk_predictions, numeric_label_list, merged_predictions, numeric_scores)):
                 frame_id = raw_frame_data[i].get("frame_id", i)
                 phone_risk = raw_frame_data[i].get("phone_risk", "")
-                writer.writerow([int(frame_id), int(pred), desc, f"{score:.2f}", phone_risk, int(smoothed)])
+                writer.writerow([int(frame_id), int(model_lab), nlabel, int(merged), desc, f"{score:.2f}", phone_risk, int(smoothed_predictions[i])])
         print(f"✓ Frame-level predictions saved: {preds_csv}")
     except Exception as e:
         print(f"⚠️ Failed to write predictions CSV: {e}")
@@ -254,7 +273,7 @@ def main():
     caution_count_saved = 0
     danger_count_saved = 0
     
-    for i, (desc, pred, smoothed) in enumerate(zip(descriptions, risk_predictions, smoothed_predictions)):
+    for i, (desc, model_pred, smoothed) in enumerate(zip(descriptions, risk_predictions, smoothed_predictions)):
         frame_info = raw_frame_data[i]
         frame = frame_info.get("frame")
         frame_id = frame_info.get("frame_id", i)
@@ -305,6 +324,30 @@ def main():
     safe_count = 0
     caution_count = 0
     danger_count = 0
+
+    # Additional safety checks (hard rules)
+    max_score = max(numeric_scores) if numeric_scores else 0
+    phone_danger_frames = sum(1 for f in raw_frame_data if f.get("phone_risk") == "danger")
+    # count longest continuous DANGER run (max_run)
+    max_run = 0
+    current_run = 0
+    for r in smoothed_predictions:
+        if r == 2:
+            current_run += 1
+            if current_run > max_run:
+                max_run = current_run
+        else:
+            current_run = 0
+
+    # sliding-window critical episode detection (5 seconds window ~10 samples at 2fps)
+    episode_count = 0
+    window_len = 10
+    for i in range(0, len(smoothed_predictions), window_len):
+        window = smoothed_predictions[i:i+window_len]
+        if not window:
+            continue
+        if sum(1 for r in window if r == 2) >= len(window) // 2:
+            episode_count += 1
     
     # ============ FRAME ANALYSIS & REPORT GENERATION ============
     
@@ -330,8 +373,8 @@ def main():
         f.write("FRAME-BY-FRAME LOG (CAUTION+ EVENTS ONLY)\n")
         f.write("-" * 70 + "\n")
         
-        for i, (desc, risk, smoothed_risk) in enumerate(
-            zip(descriptions, risk_predictions, smoothed_predictions)
+        for i, (desc, merged_pred, smoothed_risk) in enumerate(
+            zip(descriptions, merged_predictions, smoothed_predictions)
         ):
             risk_label = risk_model.interpret_risk(smoothed_risk)
             frame_id = raw_frame_data[i]["frame_id"]
@@ -406,30 +449,41 @@ def main():
         if all(c == 0 for c in stats.values()):
             f.write("  (No specific risk factors detected)\n")
         
-        # Verdict logic
+        # Verdict logic (improved with hard safety rules + numeric-model fusion)
         f.write("\n" + "=" * 70 + "\n")
         f.write("FINAL VERDICT\n")
         f.write("=" * 70 + "\n")
-        
+
         danger_pct = (danger_count / total_samples * 100) if total_samples > 0 else 0
         caution_pct = (caution_count / total_samples * 100) if total_samples > 0 else 0
-        
-        if stats["Phone Distraction (5+ frames)"] > 0:
+
+        # Start conservative: assume SAFE unless a hard rule applies
+        verdict = "SAFE ✅"
+        reason = f"Good riding with {100-caution_pct-danger_pct:.1f}% safe frames. Keep it up!"
+
+        # Hard rules and overrides (Dhaka-tuned)
+        if phone_danger_frames > 0 or stats.get("Phone Distraction (5+ frames)", 0) > 0:
             verdict = "UNSAFE ❌"
-            reason = "Active phone distraction detected (5+ frames). This is the #1 preventable risk factor."
-        elif danger_pct > 25:
-            verdict = "UNSAFE ❌"
-            reason = f"High frequency of danger events ({danger_pct:.1f}% of frames). Immediate action needed."
-        elif danger_pct > 10:
+            reason = "Active phone distraction detected (danger). Immediate corrective action required."
+        elif max_score >= 95 or max_run >= 3:
+            verdict = "DANGER ❌ – Serious risk episodes detected"
+            reason = "Sustained consecutive danger events or extreme single-frame risk detected. Immediate attention required."
+        elif (danger_count / total_samples) > 0.03 or max_score >= 80 or episode_count >= 1:
             verdict = "MODERATE RISK ⚠️"
-            reason = f"Occasional danger events ({danger_pct:.1f}%) mixed with caution events ({caution_pct:.1f}%). Improve speed/distance management."
+            reason = "Noticeable risky behavior detected. Reduce speed and increase distance; review high-risk segments."
         elif caution_pct > 20:
             verdict = "MODERATE RISK ⚠️"
-            reason = f"Frequent minor risk indicators ({caution_pct:.1f}%). Stay alert but not alarming."
-        else:
-            verdict = "SAFE ✅"
-            reason = f"Good riding with {100-caution_pct-danger_pct:.1f}% safe frames. Keep it up!"
-        
+            reason = f"Frequent minor risk indicators ({caution_pct:.1f}%). Stay alert and reduce risky maneuvers."
+
+        # Additional nudges: presence of wrong-side or pedestrian critical risks increases severity
+        if verdict == "SAFE ✅":
+            if stats.get("Wrong Side Risk", 0) > 0 and max_score >= 70:
+                verdict = "MODERATE RISK ⚠️"
+                reason = "Wrong-side interactions detected alongside high scores; be cautious."
+            if stats.get("Pedestrian Crossing", 0) > 0 and max_score >= 65:
+                verdict = "MODERATE RISK ⚠️"
+                reason = "Pedestrian interactions with high approach scores; reduce speed near pedestrians."
+
         f.write(f"\n{verdict}\n\n")
         f.write(f"Reason:\n{reason}\n")
         

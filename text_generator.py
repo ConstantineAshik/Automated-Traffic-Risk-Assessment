@@ -61,14 +61,34 @@ class TextGenerator:
 
         if is_traffic_jam:
             tokens.append("traffic_jam_proximity")
-            # Traffic jam + pedestrian crossing = risky but not necessarily DANGER
+            # Add consistent tokens used by the risk model
             if has_pedestrian:
                 tokens.append("pedestrian_crossing")
+            if frame_data.get("short_follow_distance", False):
+                tokens.append("short_follow_distance")
+            if frame_data.get("bus_blind_spot", False):
+                tokens.append("bus_blind_spot")
+            # Use 'safe_gap' as the canonical safe-distance token
+            if proximity <= 0.3:
+                tokens.append("safe_gap")
+            elif proximity <= 0.5:
+                tokens.append("moderate_distance")
+            else:
+                tokens.append("close_proximity")
             return " ".join(tokens)  # Exit early: traffic jam context overrides proximity risk
 
         # --- HIGH SPEED SCENARIOS (actual danger) ---
+        # Only add explicit high-risk tokens if multiple signals support it
         if speed == "fast":
-            tokens.append("high_speed")
+            # require at least one additional indicator to tag as high_speed
+            high_speed_support = (
+                frame_data.get("is_erratic", False)
+                or ttc_status == "critical_approach"
+                or ttc_status == "closing_in"
+                or proximity > 0.45
+            )
+            if high_speed_support:
+                tokens.append("high_speed")
 
             # Head-on or side risk (vehicle in wrong lane/extreme position)
             if frame_data.get("wrong_side_risk", False):
@@ -76,12 +96,12 @@ class TextGenerator:
             if frame_data.get("side_cut_risk", False):
                 tokens.append("side_cut_risk")
 
-            # Rapid approach to obstacle
+            # Rapid approach to obstacle - only when TTC indicates real closing
             if ttc_status == "critical_approach":
                 tokens.append("rapid_closing_speed")
 
-            # High speed + pedestrian = DANGER
-            if has_pedestrian:
+            # High speed + pedestrian = DANGER only if closing or erratic
+            if has_pedestrian and (ttc_status == "critical_approach" or frame_data.get("is_erratic", False)):
                 tokens.append("pedestrian_crossing")
 
             # High speed + sandwich/pinch = DANGER
@@ -95,7 +115,7 @@ class TextGenerator:
                 tokens.append("high_speed_tailgating")
 
             # High speed at night with low visibility
-            if frame_data.get("night", False) and len(objs) <= 1:
+            if frame_data.get("night", False) and len(objs) <= 1 and high_speed_support:
                 tokens.append("late_night_high_speed")
 
         # --- MODERATE SPEED (slow/moderate) ---
@@ -103,6 +123,12 @@ class TextGenerator:
             # Pedestrian crossing even at slow speed = risky
             if has_pedestrian and proximity > 0.25:
                 tokens.append("pedestrian_crossing")
+
+            # short follow distance and pinch tokens for model alignment
+            if frame_data.get("short_follow_distance", False):
+                tokens.append("short_follow_distance")
+            if frame_data.get("pinch_point", False):
+                tokens.append("pinch_point_no_escape")
 
             # Bus blind spot at any speed if close
             if frame_data.get("bus_blind_spot", False) and proximity > 0.3:
@@ -118,6 +144,7 @@ class TextGenerator:
         elif proximity > 0.3:
             tokens.append("moderate_distance")
         else:
-            tokens.append("safe_distance")
+            # Use canonical safe token 'safe_gap' to match training
+            tokens.append("safe_gap")
 
         return " ".join(tokens)

@@ -14,8 +14,15 @@ class VideoProcessor:
         
         self._saved_hashes = set()
         self._saved_counts = {}
-        self._save_base = os.path.dirname(os.path.abspath(danger_img_dir)) or "."
-        os.makedirs(self.danger_img_dir, exist_ok=True)
+        # Cloud-safe directory creation
+        try:
+            os.makedirs(self.danger_img_dir, exist_ok=True)
+            self._save_base = os.path.dirname(os.path.abspath(danger_img_dir)) or "."
+        except OSError:
+            # Fallback for cloud environments with strict permissions
+            self.danger_img_dir = "/tmp/danger_frames"
+            os.makedirs(self.danger_img_dir, exist_ok=True)
+            self._save_base = "/tmp"
 
         try:
             self.model = YOLO("yolov8n.pt")
@@ -67,9 +74,9 @@ class VideoProcessor:
         # Lowered thresholds to catch "moderate" speed more easily
         if avg_motion < (1.5 * scale):
             return "stationary", False
-        if avg_motion < (12.0 * scale): # Was 20.0, lowered to catch city speed
+        if avg_motion < (14.0 * scale): # tuned for Dhaka city speeds
             return "slow", is_erratic
-        if avg_motion < (25.0 * scale):
+        if avg_motion < (28.0 * scale):
             return "fast", is_erratic # Map mid-range to fast for safety
             
         return "fast", is_erratic
@@ -178,10 +185,18 @@ class VideoProcessor:
         return has_handheld, has_mounted, risk_level
 
     def get_phone_risk_level(self):
-        if self.handheld_phone_frames >= 10: return "danger"
-        elif self.handheld_phone_frames >= 7: return "caution"
-        if self.mounted_phone_frames >= 9: return "caution"
-        elif self.mounted_phone_frames >= 8: return "safe"
+        # More sensitive thresholds: handheld use is highly risky
+        if self.handheld_phone_frames >= 6:
+            return "danger"
+        elif self.handheld_phone_frames >= 4:
+            return "caution"
+
+        # Mounted phones are less risky but still notable if frequent
+        if self.mounted_phone_frames >= 9:
+            return "caution"
+        elif self.mounted_phone_frames >= 8:
+            return "caution"
+
         return "safe"
 
     def check_sandwich_condition(self, boxes, classes, frame_width):
@@ -198,19 +213,26 @@ class VideoProcessor:
                     if abs(hv_x - b_x) < (frame_width * 0.50): return True
         return False
 
-    def _compute_dhaka_side_risks(self, boxes, classes, frame_width):
+    def _compute_dhaka_side_risks(self, boxes, classes, frame_width, frame_height):
         if not boxes: return False, False
         side_cut_risk = False
         wrong_side_risk = False
         center_lane_left = frame_width * 0.33
         center_lane_right = frame_width * 0.66
-        
+
         for box, cls in zip(boxes, classes):
             cx = (box[0] + box[2]) / 2
+            cy = (box[1] + box[3]) / 2
             bw = box[2] - box[0]
             closeness = bw / (frame_width * 0.8)
-            if closeness > 0.35 and (cx < frame_width * 0.15 or cx > frame_width * 0.85): side_cut_risk = True
-            if cls in [2, 3, 5, 7] and center_lane_left < cx < center_lane_right and closeness > 0.3: wrong_side_risk = True
+            # side cut: object near extreme edges with notable width
+            if closeness > 0.35 and (cx < frame_width * 0.15 or cx > frame_width * 0.85):
+                side_cut_risk = True
+
+            # wrong-side detection: require a larger closeness and that object is low in frame (closer)
+            if cls in [2, 3, 5, 7] and center_lane_left < cx < center_lane_right:
+                if closeness > 0.5 and cy > 0.6 * frame_height:
+                    wrong_side_risk = True
         return side_cut_risk, wrong_side_risk
 
     def _compute_follow_distance_and_pinch(self, boxes, classes, frame_width, frame_height):
@@ -385,7 +407,7 @@ class VideoProcessor:
         is_glare = self.detect_glare(frame)
         is_night = self.detect_darkness_improved(frame)
         is_sandwich = self.check_sandwich_condition(current_boxes, current_classes, frame.shape[1])
-        side_cut, wrong_side = self._compute_dhaka_side_risks(current_boxes, current_classes, frame.shape[1])
+        side_cut, wrong_side = self._compute_dhaka_side_risks(current_boxes, current_classes, frame.shape[1], frame.shape[0])
         short_follow, pinch, bus_blind, unsecured = self._compute_follow_distance_and_pinch(current_boxes, current_classes, frame.shape[1], frame.shape[0])
         entering, ped_cross = self._compute_entering_traffic_and_pedestrian(current_boxes, current_classes, frame.shape[1], frame.shape[0], ttc_status)
         wet_glare = self.detect_wet_or_glare_surface(frame, is_night)

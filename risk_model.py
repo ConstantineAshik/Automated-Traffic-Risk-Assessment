@@ -32,6 +32,10 @@ class RiskModel:
             "day low_speed_filtering sandwich_risk",
             "day safe_gap slow",
             "day safe_gap moderate_distance slow",
+            # Additional Dhaka-safe examples: jam + pedestrians at slow speed
+            "day traffic_jam_proximity pedestrian_crossing slow",
+            "day traffic_jam_proximity pedestrian_crossing stationary",
+            "day traffic_jam_proximity pedestrian_crossing safe_gap slow",
             "night safe_gap stationary",
             "day traffic_jam_proximity moderate_distance slow",
             
