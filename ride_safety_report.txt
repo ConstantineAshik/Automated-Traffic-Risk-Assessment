@@ -1,0 +1,87 @@
+======================================================================
+DHAKA-RIDE SAFETY ANALYZER V9 (IMPROVED)
+======================================================================
+
+Video Analyzed: G:\Capstone c\rough_ride.mp4
+
+This analysis uses:
+✓ Speed-aware proximity interpretation
+✓ Traffic jam exception handling
+✓ Proper phone detection weighting
+✓ Bangladesh-specific traffic context
+✓ Temporal smoothing for noise reduction
+
+FRAME-BY-FRAME LOG (CAUTION+ EVENTS ONLY)
+----------------------------------------------------------------------
+[Frame     0] CAUTION (slow      ) | Score:  45/100 | night slow safe_distance
+[Frame    58] CAUTION (slow      ) | Score:  68/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame    59] CAUTION (slow      ) | Score:  76/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame   118] CAUTION (slow      ) | Score:  68/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame   119] CAUTION (slow      ) | Score:  76/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame   958] CAUTION (slow      ) | Score:  35/100 | day slow safe_distance
+[Frame   959] CAUTION (slow      ) | Score:  76/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame  1017] CAUTION (slow      ) | Score:  89/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame  1018] CAUTION (slow      ) | Score:  84/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame  1077] CAUTION (slow      ) | Score:  79/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 13606] DANGER  (fast      ) | Score: 100/100 | day fast high_speed wrong_side_risk rapid_clo
+[Frame 13665] DANGER  (fast      ) | Score: 100/100 | day fast high_speed wrong_side_risk rapid_clo
+[Frame 13666] DANGER  (slow      ) | Score:  76/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 13725] DANGER  (slow      ) | Score:  86/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 13726] DANGER  (fast      ) | Score: 100/100 | day fast high_speed wrong_side_risk rapid_clo
+[Frame 13785] DANGER  (fast      ) | Score: 100/100 | day fast high_speed wrong_side_risk rapid_clo
+[Frame 13786] DANGER  (slow      ) | Score:  81/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 13845] DANGER  (slow      ) | Score:  79/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 13846] DANGER  (slow      ) | Score:  96/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 13905] DANGER  (slow      ) | Score:  86/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 15943] CAUTION (slow      ) | Score:  70/100 | day slow safe_distance
+[Frame 15944] CAUTION (slow      ) | Score:  58/100 | day slow pedestrian_crossing safe_distance
+[Frame 16002] CAUTION (slow      ) | Score:  76/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 16003] CAUTION (slow      ) | Score:  79/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 16062] CAUTION (slow      ) | Score:  61/100 | day slow safe_distance
+[Frame 16063] CAUTION (slow      ) | Score:  66/100 | day slow safe_distance
+[Frame 16122] CAUTION (slow      ) | Score:  91/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 16123] CAUTION (slow      ) | Score:  91/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 16182] CAUTION (slow      ) | Score:  86/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 16183] CAUTION (slow      ) | Score:  76/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 19359] CAUTION (slow      ) | Score:  58/100 | day slow safe_distance
+[Frame 19360] CAUTION (slow      ) | Score:  43/100 | day slow safe_distance
+[Frame 19419] CAUTION (slow      ) | Score: 100/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 19420] CAUTION (slow      ) | Score: 100/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 19479] CAUTION (slow      ) | Score:  76/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 19480] CAUTION (slow      ) | Score:  79/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 20859] CAUTION (slow      ) | Score:  66/100 | day slow safe_distance
+[Frame 20918] CAUTION (slow      ) | Score:  91/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 20919] CAUTION (slow      ) | Score:  96/100 | day slow traffic_jam_proximity pedestrian_cro
+[Frame 20978] CAUTION (slow      ) | Score:  61/100 | day slow traffic_jam_proximity
+[Frame 20979] CAUTION (slow      ) | Score:  53/100 | day slow traffic_jam_proximity
+
+======================================================================
+SUMMARY STATISTICS
+======================================================================
+Total Frames Analyzed: 770
+Safe Frames: 729 (94.7%)
+Caution Frames: 31 (4.0%)
+Danger Frames: 10 (1.3%)
+
+DETECTED RISK FACTORS
+----------------------------------------------------------------------
+  Pedestrian Crossing: 728
+  Wrong Side Risk: 4
+  Pinch Point: 1
+
+======================================================================
+FINAL VERDICT
+======================================================================
+
+SAFE ✅
+
+Reason:
+Good riding with 94.7% safe frames. Keep it up!
+
+======================================================================
+RECOMMENDED ACTIONS
+======================================================================
+
+1. ⚠️ When facing wrong-direction traffic, reduce speed and stay in predictable lane.
+
+2. ⚠️ Slow down near pedestrians and give them priority.
