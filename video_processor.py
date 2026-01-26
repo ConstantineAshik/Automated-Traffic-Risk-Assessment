@@ -7,10 +7,19 @@ from ultralytics import YOLO
 import hashlib
 
 class VideoProcessor:
-    def __init__(self, video_path, window_size=10, danger_img_dir="danger_frames"):
+    def __init__(
+        self,
+        video_path,
+        window_size=10,
+        danger_img_dir="danger_frames",
+        sampling_fps=2.0,
+        max_frames=0,
+    ):
         self.video_path = video_path
         self.window_size = window_size
         self.danger_img_dir = danger_img_dir
+        self.sampling_fps = sampling_fps
+        self.max_frames = max_frames
         
         self._saved_hashes = set()
         self._saved_counts = {}
@@ -62,16 +71,12 @@ class VideoProcessor:
         center_region = magnitude[h // 4:3 * h // 4, w // 3:2 * w // 3]
         avg_motion = np.mean(center_region) if center_region.size > 0 else np.mean(magnitude)
         
-        # --- NEW: DETECT AGGRESSION (Flow Variance) ---
-        # High variance = chaotic movement (swerving, shaking, hard braking)
         motion_variance = np.var(magnitude)
         is_erratic = motion_variance > 50.0  # Threshold for "rough ride"
         
         frame_width = frame.shape[1]
         scale = frame_width / 1280.0
         
-        # --- UPDATED: TIGHTER THRESHOLDS ---
-        # Lowered thresholds to catch "moderate" speed more easily
         if avg_motion < (1.5 * scale):
             return "stationary", False
         if avg_motion < (14.0 * scale): # tuned for Dhaka city speeds
@@ -331,46 +336,50 @@ class VideoProcessor:
         # Determine sampling strategy
         if fps is None or fps <= 0 or total_frames <= 0:
             # Fallback for bad metadata
-            if self.window_size <= 0: self.window_size = 30
-            num_windows = max(total_frames // self.window_size, 1)
-            for i in range(num_windows):
-                start = i * self.window_size
-                end = min((i + 1) * self.window_size, total_frames)
-                if end - start < 2: continue
-                idx = random.randint(start, end - 2)
-                cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-                ret1, frame1 = cap.read()
-                ret2, frame2 = cap.read()
-                if not ret1 or not ret2: break
+            fallback_fps = 30.0
+            interval = max(int(round(fallback_fps / max(self.sampling_fps, 0.1))), 1)
+            idx = 0
+            prev_frame = None
+            while True:
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                if idx % interval != 0:
+                    idx += 1
+                    continue
+                if prev_frame is None:
+                    prev_frame = frame
+                    idx += 1
+                    continue
                 self.total_frames_processed += 1
-                prev_gray = cv2.cvtColor(frame1, cv2.COLOR_BGR2GRAY)
-                # Pass BOTH frames to heuristic to get speed + variance
-                speed_status, is_erratic = self.estimate_speed_heuristic(frame2, prev_gray)
-                frame_data.append(self._analyze_single_frame(frame2, idx, speed_status, is_erratic))
-                del frame1, frame2
+                prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+                speed_status, is_erratic = self.estimate_speed_heuristic(frame, prev_gray)
+                frame_data.append(self._analyze_single_frame(frame, idx, speed_status, is_erratic))
+                if self.max_frames and len(frame_data) >= self.max_frames:
+                    break
+                prev_frame = frame
+                idx += 1
         else:
-            # Standard 2 frames per second
-            duration = max(int(np.ceil(total_frames / max(1.0, fps))), 1)
-            print(f"Sampling 2 frames/sec for ~{duration} seconds...")
-            for s in range(duration):
-                idx1 = int(s * fps)
-                idx2 = int(min((s + 1) * fps - 1, total_frames - 1))
-                
-                cap.set(cv2.CAP_PROP_POS_FRAMES, idx1)
-                ret1, frame1 = cap.read()
-                cap.set(cv2.CAP_PROP_POS_FRAMES, idx2)
-                ret2, frame2 = cap.read()
-                
-                if not ret1 or not ret2: continue
-                self.total_frames_processed += 2
-                
-                prev_gray = cv2.cvtColor(frame1, cv2.COLOR_BGR2GRAY)
-                speed_status, is_erratic = self.estimate_speed_heuristic(frame2, prev_gray)
-                
-                frame_data.append(self._analyze_single_frame(frame1, idx1, speed_status, is_erratic))
-                if idx2 != idx1:
-                    frame_data.append(self._analyze_single_frame(frame2, idx2, speed_status, is_erratic))
-                del frame1, frame2
+            interval = max(int(round(fps / max(self.sampling_fps, 0.1))), 1)
+            idx = 0
+            prev_frame = None
+            while idx < total_frames:
+                cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                if prev_frame is None:
+                    prev_frame = frame
+                    idx += interval
+                    continue
+                self.total_frames_processed += 1
+                prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+                speed_status, is_erratic = self.estimate_speed_heuristic(frame, prev_gray)
+                frame_data.append(self._analyze_single_frame(frame, idx, speed_status, is_erratic))
+                if self.max_frames and len(frame_data) >= self.max_frames:
+                    break
+                prev_frame = frame
+                idx += interval
         
         cap.release()
         return frame_data
@@ -420,7 +429,7 @@ class VideoProcessor:
             "objects": objects_detected,
             "proximity_score": max_closeness,
             "ego_speed": speed_status,
-            "is_erratic": is_erratic,  # <--- NEW FIELD
+            "is_erratic": is_erratic,
             "ttc_status": ttc_status,
             "glare": is_glare,
             "night": is_night,

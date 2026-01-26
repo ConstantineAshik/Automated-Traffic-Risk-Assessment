@@ -44,7 +44,7 @@ def diagnose(frame_data):
 
 
 if __name__ == '__main__':
-    # Example 1: frame that previously produced the danger tokens
+    # Example 1: sample frame with elevated risks
     sample_frame_1 = {
         "ego_speed": "fast",
         "is_erratic": False,
@@ -56,10 +56,10 @@ if __name__ == '__main__':
         "phone_risk": "safe",
     }
 
-    print("\n--- Diagnosis: ORIGINAL SUSPECT FRAME ---\n")
+    print("\n--- Diagnosis: SAMPLE FRAME 1 ---\n")
     diagnose(sample_frame_1)
 
-    # Example 2: what it should be if wrong-side is NOT detected and TTC not critical
+    # Example 2: sample frame with lower risk signals
     sample_frame_2 = {
         "ego_speed": "fast",
         "is_erratic": False,
@@ -71,5 +71,5 @@ if __name__ == '__main__':
         "phone_risk": "safe",
     }
 
-    print("\n--- Diagnosis: CORRECTED FRAME (no wrong-side, lower proximity) ---\n")
+    print("\n--- Diagnosis: SAMPLE FRAME 2 ---\n")
     diagnose(sample_frame_2)

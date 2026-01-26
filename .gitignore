@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+danger_frames/
+safe_frames/
+caution_frames/
+model_predictions.csv
+ride_safety_report.txt
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.m4v
+yolov8n.pt
