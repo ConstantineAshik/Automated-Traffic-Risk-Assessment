@@ -87,7 +87,13 @@ def _save_frames(result):
 def main():
     video_path = get_video_path()
     output_file = "ride_safety_report.txt"
-    config = PipelineConfig()
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    risk_model_path = os.path.join(project_root, "models", "risk_model.joblib")
+    config = PipelineConfig(
+        structured_risk_model_path=(
+            risk_model_path if os.path.isfile(risk_model_path) else None
+        )
+    )
 
     print("=" * 70)
     print("DHAKA-RIDE SAFETY ANALYZER")

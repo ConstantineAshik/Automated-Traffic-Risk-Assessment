@@ -6,7 +6,7 @@ from core.types import AnalysisResult
 def _suggest_actions(stats: Dict[str, int], verdict: str) -> List[str]:
     suggestions = []
 
-    if stats.get("Phone Distraction (5+ frames)", 0) > 0:
+    if stats.get("Phone Distraction (sustained)", 0) > 0:
         suggestions.append(
             "CRITICAL: Avoid using phone while riding. This is the top preventable risk."
         )
@@ -50,6 +50,12 @@ def write_report(result: AnalysisResult, output_file: str) -> None:
         f.write("=" * 70 + "\n\n")
 
         f.write(f"Video Analyzed: {result.video_path}\n\n")
+        loaded_models = result.detector_metadata.get("loaded_models", [])
+        f.write(
+            "Detector Models: "
+            + (", ".join(loaded_models) if loaded_models else "(none)")
+            + "\n\n"
+        )
         f.write("This analysis uses:\n")
         f.write("- Speed-aware proximity interpretation\n")
         f.write("- Traffic jam exception handling\n")

@@ -28,12 +28,15 @@ def _count_max_run(smoothed_predictions: List[int]) -> int:
 
 
 def _count_episodes(smoothed_predictions: List[int], window_len: int) -> int:
+    if window_len < 1:
+        raise ValueError("episode window length must be at least 1")
     episode_count = 0
     for i in range(0, len(smoothed_predictions), window_len):
         window = smoothed_predictions[i : i + window_len]
         if not window:
             continue
-        if sum(1 for r in window if r == 2) >= len(window) // 2:
+        required_danger_frames = (len(window) // 2) + 1
+        if sum(1 for r in window if r == 2) >= required_danger_frames:
             episode_count += 1
     return episode_count
 
@@ -59,7 +62,10 @@ def compute_verdict(
     verdict = "SAFE"
     reason = f"Good riding with {100 - caution_pct - danger_pct:.1f}% safe frames."
 
-    if phone_danger_frames > 0 or stats.get("Phone Distraction (5+ frames)", 0) > 0:
+    if (
+        phone_danger_frames > 0
+        or stats.get("Phone Distraction (sustained)", 0) > 0
+    ):
         verdict = "UNSAFE"
         reason = "Active phone distraction detected. Immediate corrective action required."
     elif max_score >= config.max_score_danger or max_run >= config.max_run_danger:

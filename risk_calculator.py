@@ -66,8 +66,10 @@ class RiskCalculator:
                 risk_score += 25
 
         objects = frame_data.get("objects", [])
-        has_heavy = any(o in ["bus", "truck", "heavy_vehicle"] for o in objects)
-        has_rickshaw = "rickshaw" in objects
+        has_heavy = any(o in ("bus", "truck", "heavy_vehicle") for o in objects)
+        has_rickshaw = any(
+            o in ("rickshaw", "auto rickshaw", "cng") for o in objects
+        )
 
         if has_heavy:
             if ego_speed_category == "fast":
@@ -81,6 +83,8 @@ class RiskCalculator:
 
         if frame_data.get("wrong_side_risk", False):
             risk_score += 35 if ego_speed_category == "fast" else 15
+        if frame_data.get("frontal_conflict_risk", False):
+            risk_score += 30 if ego_speed_category == "fast" else 15
         if frame_data.get("side_cut_risk", False):
             risk_score += 28 if ego_speed_category == "fast" else 10
         if frame_data.get("sandwich_risk", False):
@@ -116,6 +120,7 @@ class RiskCalculator:
 
         has_critical_flag = (
             frame_data.get("wrong_side_risk", False)
+            or frame_data.get("frontal_conflict_risk", False)
             or frame_data.get("side_cut_risk", False)
             or frame_data.get("sandwich_risk", False)
             or frame_data.get("entering_traffic_risk", False)

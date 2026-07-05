@@ -69,6 +69,8 @@ class TextGenerator:
 
             if frame_data.get("wrong_side_risk", False):
                 tokens.append("wrong_side_risk")
+            if frame_data.get("frontal_conflict_risk", False):
+                tokens.append("frontal_conflict")
             if frame_data.get("side_cut_risk", False):
                 tokens.append("side_cut_risk")
             if ttc_status == "critical_approach":
@@ -100,6 +102,8 @@ class TextGenerator:
                 tokens.append("bus_blind_spot")
             if frame_data.get("entering_traffic_risk", False):
                 tokens.append("entering_traffic_conflict")
+            if frame_data.get("frontal_conflict_risk", False):
+                tokens.append("frontal_conflict")
 
         if proximity > 0.5:
             tokens.append("close_proximity")
