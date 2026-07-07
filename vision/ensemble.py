@@ -31,6 +31,8 @@ RELEVANT_LABELS = {
     "wrong way vehicle",
 }
 
+COCO_DATASET_NAME = "coco"
+
 
 def normalize_label(label: str) -> str:
     normalized = " ".join(str(label).strip().lower().replace("_", " ").split())
@@ -58,7 +60,11 @@ class Detection:
     track_id: Optional[int] = None
     ttc_status: str = "unknown"
     ttc_seconds: Optional[float] = None
+    distance_proxy: Optional[float] = None
+    relative_speed_proxy: float = 0.0
+    stable_seconds: float = 0.0
     lateral_velocity: float = 0.0
+    in_forward_path: bool = False
 
     @property
     def model_votes(self) -> int:
@@ -125,12 +131,16 @@ class EnsembleDetector:
         min_model_votes: int = 1,
         image_size: int = 640,
         device: Optional[str] = None,
+        dataset: str = COCO_DATASET_NAME,
+        detect_all_labels: bool = True,
     ):
         self.confidence = confidence
         self.iou_threshold = iou_threshold
         self.min_model_votes = min_model_votes
         self.image_size = image_size
         self.device = device
+        self.dataset = dataset
+        self.detect_all_labels = detect_all_labels
         self.models = []
         self.load_errors: Dict[str, str] = {}
 
@@ -159,6 +169,8 @@ class EnsembleDetector:
             "confidence_threshold": self.confidence,
             "ensemble_iou_threshold": self.iou_threshold,
             "minimum_model_votes": self.min_model_votes,
+            "dataset": self.dataset,
+            "detect_all_labels": self.detect_all_labels,
         }
 
     def predict(self, frame) -> Tuple[List[Detection], bool, Dict[str, str]]:
@@ -191,7 +203,7 @@ class EnsembleDetector:
                     else names[class_id]
                 )
                 label = normalize_label(raw_label)
-                if label not in RELEVANT_LABELS:
+                if not self.detect_all_labels and label not in RELEVANT_LABELS:
                     continue
                 coordinates = tuple(float(value) for value in box.xyxy[0].tolist())
                 candidates.append(

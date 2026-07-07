@@ -19,7 +19,12 @@ from sklearn.model_selection import GroupShuffleSplit
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-from risk_features import CATEGORICAL_FEATURES, FEATURE_COLUMNS, NUMERIC_FEATURES
+from risk_features import (
+    CATEGORICAL_FEATURES,
+    DEFAULT_FEATURE_VALUES,
+    FEATURE_COLUMNS,
+    NUMERIC_FEATURES,
+)
 
 
 LABEL_MAPPING = {"SAFE": 0, "CAUTION": 1, "DANGER": 2}
@@ -46,10 +51,14 @@ def _normalize_labels(labels):
 
 
 def _validate(table, min_ride_groups=3, require_all_classes=True):
-    required = set(FEATURE_COLUMNS) | {"human_label", "ride_id"}
-    missing = sorted(required - set(table.columns))
+    required_non_features = {"human_label", "ride_id"}
+    missing = sorted(required_non_features - set(table.columns))
     if missing:
         raise ValueError(f"Missing required columns: {', '.join(missing)}")
+    table = table.copy()
+    for feature in FEATURE_COLUMNS:
+        if feature not in table.columns:
+            table[feature] = DEFAULT_FEATURE_VALUES[feature]
 
     labels = _normalize_labels(table["human_label"])
     invalid = sorted(

@@ -80,10 +80,13 @@ acceptable false-alert rate. Review every false negative.
 
 ## 6. Fine-tune object detection properly
 
-The current checkpoints expose COCO labels. Create a Dhaka object-detection
-dataset with bounding boxes for the classes the risk logic actually needs,
-including rickshaw/CNG if required. Keep train, validation, and test images
-grouped by source video.
+The current checkpoints expose COCO labels and the code treats them as
+COCO-trained detectors. That is useful for general forward-path obstacles, but
+it cannot reliably distinguish local classes that are not in COCO.
+
+Create a Dhaka object-detection dataset with bounding boxes for the classes the
+risk logic actually needs, including rickshaw/CNG if required. Keep train,
+validation, and test images grouped by source video.
 
 Record for every checkpoint:
 

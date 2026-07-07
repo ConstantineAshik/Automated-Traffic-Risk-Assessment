@@ -37,10 +37,14 @@ def _suggest_actions(stats: Dict[str, int], verdict: str) -> List[str]:
 
     if verdict == "SAFE" and not suggestions:
         suggestions.append("Excellent riding. Maintain current habits of awareness and safe spacing.")
-    elif verdict == "MODERATE" and len(suggestions) < 2:
+    elif verdict in ("CAUTION", "CAUTION_WITH_DANGER_MOMENT", "MODERATE") and len(suggestions) < 2:
         suggestions.append("Focus on the identified hazard above. Most other riding is acceptable.")
 
     return suggestions
+
+
+def _display_verdict(verdict: str) -> str:
+    return str(verdict).replace("_", " ").title()
 
 
 def write_report(result: AnalysisResult, output_file: str) -> None:
@@ -57,10 +61,11 @@ def write_report(result: AnalysisResult, output_file: str) -> None:
             + "\n\n"
         )
         f.write("This analysis uses:\n")
-        f.write("- Speed-aware proximity interpretation\n")
-        f.write("- Traffic jam exception handling\n")
+        f.write("- COCO object detection for forward-path obstacles\n")
+        f.write("- TTC-aware proximity interpretation\n")
+        f.write("- Traffic jam and stable-distance exception handling\n")
         f.write("- Phone detection weighting\n")
-        f.write("- Bangladesh-specific traffic context\n")
+        f.write("- Motion context from tracking and optical flow\n")
         f.write("- Temporal smoothing for noise reduction\n\n")
 
         if result.incomplete_analysis:
@@ -70,17 +75,16 @@ def write_report(result: AnalysisResult, output_file: str) -> None:
         f.write("FRAME-BY-FRAME LOG (CAUTION+ EVENTS ONLY)\n")
         f.write("-" * 70 + "\n")
 
-        for i, (desc, smoothed_risk) in enumerate(
-            zip(result.descriptions, result.smoothed_predictions)
+        for i, (desc, numeric_label) in enumerate(
+            zip(result.descriptions, result.numeric_labels)
         ):
-            if smoothed_risk < 1:
+            if numeric_label == "SAFE":
                 continue
             frame_id = result.raw_frame_data[i].get("frame_id", i)
             speed = result.raw_frame_data[i].get("ego_speed", "unknown")
             score = result.numeric_scores[i]
-            label = "SAFE" if smoothed_risk == 0 else ("CAUTION" if smoothed_risk == 1 else "DANGER")
             line = (
-                f"[Frame {frame_id:5d}] {label:7s} ({speed:10s}) | "
+                f"[Frame {frame_id:5d}] {numeric_label:7s} ({speed:10s}) | "
                 f"Score: {score:3.0f}/100 | {desc[:45]}\n"
             )
             f.write(line)
@@ -105,7 +109,7 @@ def write_report(result: AnalysisResult, output_file: str) -> None:
         f.write("\n" + "=" * 70 + "\n")
         f.write("FINAL VERDICT\n")
         f.write("=" * 70 + "\n\n")
-        f.write(f"{result.verdict}\n\n")
+        f.write(f"{_display_verdict(result.verdict)}\n\n")
         f.write("Reason:\n")
         f.write(f"{result.verdict_reason}\n")
 

@@ -13,11 +13,15 @@ The pipeline now combines:
 
 ## Important model limitation
 
-The three supplied YOLO checkpoints load successfully, but expose the standard
-80 COCO labels. They do not expose Dhaka-specific labels such as rickshaw or
-CNG, and two identify COCO dataset metadata. They are used as a general object
-detection ensemble. Do not describe them as Dhaka-fine-tuned until their
-training/evaluation records demonstrate that.
+The three supplied YOLO checkpoints load successfully and are treated as
+COCO-trained object detectors. The pipeline therefore keeps all COCO labels
+instead of pretending the checkpoints know Dhaka-only classes such as rickshaw
+or CNG. Risk is calculated from forward-path objects, tracking motion, optical
+flow, Time-to-Collision (TTC), and traffic-jam context.
+
+Close distance by itself is not considered dangerous. A nearby vehicle in slow,
+stable congestion is treated differently from a nearby vehicle that is rapidly
+expanding in the rider's forward path.
 
 Inspect checkpoint metadata at any time:
 
@@ -53,6 +57,16 @@ PipelineConfig(
     ensemble_min_model_votes=1,
 )
 ```
+
+By default the detector runs in COCO mode:
+
+```python
+PipelineConfig(detection_dataset="coco", detect_all_coco_objects=True)
+```
+
+This lets the model report any COCO object it sees. Only objects inside the
+middle-lower rider path area strongly affect following-distance/TTC risk;
+objects beside the rider are kept in the detection log with lower risk weight.
 
 ## Test
 

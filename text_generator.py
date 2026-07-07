@@ -17,6 +17,8 @@ class TextGenerator:
         speed = frame_data.get("ego_speed", "stationary")
         proximity = frame_data.get("proximity_score", 0.0)
         ttc_status = frame_data.get("ttc_status", "stable")
+        front_ttc = frame_data.get("front_ttc_seconds")
+        front_stable_seconds = frame_data.get("front_stable_seconds", 0.0)
         objs = frame_data.get("objects", [])
         phone_risk = frame_data.get("phone_risk", "safe")
 
@@ -39,10 +41,12 @@ class TextGenerator:
 
         tokens.append(speed)
 
-        is_traffic_jam = speed in ("slow", "stationary") and proximity > 0.3
+        is_traffic_jam = bool(frame_data.get("traffic_jam", False))
 
         if is_traffic_jam:
             tokens.append("traffic_jam_proximity")
+            if front_stable_seconds >= 2:
+                tokens.append("stable_close_distance")
             if has_pedestrian:
                 tokens.append("pedestrian_crossing")
             if frame_data.get("short_follow_distance", False):
@@ -62,6 +66,7 @@ class TextGenerator:
                 frame_data.get("is_erratic", False)
                 or ttc_status == "critical_approach"
                 or ttc_status == "closing_in"
+                or (front_ttc is not None and front_ttc <= 3.0)
                 or proximity > 0.45
             )
             if high_speed_support:
@@ -75,6 +80,8 @@ class TextGenerator:
                 tokens.append("side_cut_risk")
             if ttc_status == "critical_approach":
                 tokens.append("rapid_closing_speed")
+            elif front_ttc is not None and front_ttc <= 3.0:
+                tokens.append("low_ttc")
 
             if has_pedestrian and (
                 ttc_status == "critical_approach" or frame_data.get("is_erratic", False)

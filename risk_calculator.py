@@ -28,42 +28,51 @@ class RiskCalculator:
             risk_score += 30
 
         proximity = frame_data.get("proximity_score", 0.0)
+        side_proximity = frame_data.get("side_proximity_score", 0.0)
+        traffic_jam = frame_data.get("traffic_jam", False)
+        front_ttc = frame_data.get("front_ttc_seconds")
+        front_relative_speed = frame_data.get("front_relative_speed_proxy", 0.0)
+        front_stable_seconds = frame_data.get("front_stable_seconds", 0.0)
         ttc_status = frame_data.get("ttc_status", "stable")
 
-        if ego_speed_category == "stationary":
-            if proximity > 0.6:
-                risk_score += 5
-        elif ego_speed_category == "slow":
-            if proximity > 0.5:
-                risk_score += 2
-            elif proximity > 0.4:
-                risk_score += 1
-            if ttc_status == "critical_approach":
-                risk_score += 12
-            elif ttc_status == "closing_in":
-                risk_score += 4
-        elif ego_speed_category == "moderate":
-            if proximity > 0.5:
-                risk_score += 18
-            elif proximity > 0.4:
-                risk_score += 10
-            elif proximity > 0.2:
-                risk_score += 5
-            if ttc_status == "critical_approach":
-                risk_score += 20
-            elif ttc_status == "closing_in":
+        # Motion context matters more than one-frame distance. A close vehicle
+        # in front during stopped traffic should not become DANGER unless the
+        # rider is actually closing in.
+        if proximity >= 0.55:
+            risk_score += 8 if ego_speed_category in ("stationary", "slow") else 16
+        elif proximity > 0.35:
+            risk_score += 3 if ego_speed_category in ("stationary", "slow") else 8
+        elif proximity > 0.20 and ego_speed_category == "fast":
+            risk_score += 5
+
+        if side_proximity > 0.45 and not proximity > 0.25:
+            risk_score += 3
+
+        if front_ttc is not None:
+            if front_ttc < 1.5:
+                risk_score += 45
+            elif front_ttc <= 3.0:
+                risk_score += 25
+            elif front_ttc <= 5.0 and ego_speed_category == "fast":
                 risk_score += 8
-        elif ego_speed_category == "fast":
-            if proximity > 0.5:
-                risk_score += 35
-            elif proximity > 0.4:
-                risk_score += 25
-            elif proximity > 0.2:
-                risk_score += 15
-            if ttc_status == "critical_approach":
-                risk_score += 40
-            elif ttc_status == "closing_in":
-                risk_score += 25
+        elif ttc_status == "critical_approach":
+            risk_score += 30
+        elif ttc_status == "closing_in":
+            risk_score += 15
+
+        if front_relative_speed > 0.12:
+            risk_score += 22
+        elif front_relative_speed > 0.06:
+            risk_score += 12
+
+        if traffic_jam:
+            risk_score -= 30
+        if ego_speed_category in ("stationary", "slow"):
+            risk_score -= 10
+        if front_stable_seconds >= 3.0:
+            risk_score -= 20
+        elif front_stable_seconds >= 1.5:
+            risk_score -= 10
 
         objects = frame_data.get("objects", [])
         has_heavy = any(o in ("bus", "truck", "heavy_vehicle") for o in objects)
@@ -128,6 +137,8 @@ class RiskCalculator:
                 frame_data.get("pedestrian_crossing_risk", False)
                 and ego_speed_category in ("moderate", "fast")
             )
+            or (front_ttc is not None and front_ttc < 1.5)
+            or front_relative_speed > 0.12
             or (frame_data.get("phone_risk", "") == "danger")
         )
         if not has_critical_flag and risk_score > 70:

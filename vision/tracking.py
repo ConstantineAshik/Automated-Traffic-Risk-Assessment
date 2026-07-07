@@ -1,3 +1,4 @@
+import math
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Deque, Dict, List, Sequence, Tuple
@@ -43,6 +44,7 @@ class IoUTracker:
         detections: Sequence[Detection],
         timestamp: float,
         frame_width: int,
+        frame_height: int,
     ) -> List[Detection]:
         self.tracks = {
             track_id: track
@@ -82,14 +84,15 @@ class IoUTracker:
                 track.history.append((timestamp, detection.box))
 
             detection.track_id = best_track_id
-            self._add_motion_metrics(detection, track, frame_width)
+            self._add_motion_metrics(detection, track, frame_width, frame_height)
 
         return list(detections)
 
     @staticmethod
     def _add_motion_metrics(
-        detection: Detection, track: Track, frame_width: int
+        detection: Detection, track: Track, frame_width: int, frame_height: int
     ) -> None:
+        detection.distance_proxy = _distance_proxy(detection.box, frame_width, frame_height)
         if len(track.history) < 2:
             return
         old_time, old_box = track.history[0]
@@ -98,21 +101,26 @@ class IoUTracker:
         if elapsed <= 0:
             return
 
-        old_width = max(old_box[2] - old_box[0], 1.0)
-        new_width = max(new_box[2] - new_box[0], 1.0)
-        growth_per_second = (new_width - old_width) / elapsed
-        growth_ratio = growth_per_second / old_width
+        old_distance = _distance_proxy(old_box, frame_width, frame_height)
+        new_distance = _distance_proxy(new_box, frame_width, frame_height)
+        # Positive relative speed means the object is getting closer in the
+        # monocular-camera proxy space. Near zero means traffic is moving with
+        # the rider, or both are stopped, so TTC should not create danger.
+        relative_speed = (old_distance - new_distance) / elapsed
+        detection.distance_proxy = new_distance
+        detection.relative_speed_proxy = relative_speed
 
-        if growth_per_second > 0 and growth_ratio > 0.03:
-            ttc_seconds = new_width / growth_per_second
+        if relative_speed > 0.03:
+            ttc_seconds = new_distance / relative_speed
             detection.ttc_seconds = ttc_seconds
-            if ttc_seconds <= 2.0:
+            if ttc_seconds < 1.5:
                 detection.ttc_status = "critical_approach"
-            elif ttc_seconds <= 4.0:
+            elif ttc_seconds <= 3.0:
                 detection.ttc_status = "closing_in"
             else:
                 detection.ttc_status = "stable"
         else:
+            detection.ttc_seconds = math.inf
             detection.ttc_status = "stable"
 
         old_center, _ = _center(old_box)
@@ -120,3 +128,20 @@ class IoUTracker:
         detection.lateral_velocity = (
             (new_center - old_center) / max(frame_width, 1)
         ) / elapsed
+
+        close_now = _closeness(new_box, frame_width, frame_height) > 0.32
+        if close_now and abs(relative_speed) <= 0.03:
+            detection.stable_seconds = elapsed
+        else:
+            detection.stable_seconds = 0.0
+
+
+def _closeness(box: Box, frame_width: int, frame_height: int) -> float:
+    width_closeness = (box[2] - box[0]) / (max(frame_width, 1) * 0.8)
+    height_closeness = (box[3] - box[1]) / (max(frame_height, 1) * 0.9)
+    return min(max(width_closeness, height_closeness), 1.0)
+
+
+def _distance_proxy(box: Box, frame_width: int, frame_height: int) -> float:
+    closeness = max(_closeness(box, frame_width, frame_height), 0.02)
+    return 1.0 / closeness

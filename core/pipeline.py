@@ -37,6 +37,9 @@ def _init_stats() -> Dict[str, int]:
         "Pedestrian Crossing": 0,
         "Wet Road / Glare": 0,
         "Late-Night High-Speed": 0,
+        "Traffic Jam": 0,
+        "Low TTC Approach": 0,
+        "Stable Close Distance": 0,
     }
 
 
@@ -73,6 +76,13 @@ def _update_stats(stats: Dict[str, int], desc: str, frame_data: Dict) -> None:
         stats["Wet Road / Glare"] += 1
     if frame_data.get("late_night_high_speed", False):
         stats["Late-Night High-Speed"] += 1
+    if frame_data.get("traffic_jam", False):
+        stats["Traffic Jam"] += 1
+    front_ttc = frame_data.get("front_ttc_seconds")
+    if front_ttc is not None and front_ttc <= 3.0:
+        stats["Low TTC Approach"] += 1
+    if frame_data.get("front_stable_seconds", 0.0) >= 2.0:
+        stats["Stable Close Distance"] += 1
 
 
 def analyze(video_path: str, config: PipelineConfig) -> AnalysisResult:
@@ -88,6 +98,8 @@ def analyze(video_path: str, config: PipelineConfig) -> AnalysisResult:
         ensemble_min_model_votes=config.ensemble_min_model_votes,
         inference_image_size=config.inference_image_size,
         inference_device=config.inference_device,
+        detection_dataset=config.detection_dataset,
+        detect_all_coco_objects=config.detect_all_coco_objects,
     )
     text_gen = TextGenerator()
     risk_calc = RiskCalculator()

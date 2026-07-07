@@ -7,6 +7,27 @@ from pathlib import Path
 from vision.ensemble import Detection, EnsembleDetector
 from vision.tracking import IoUTracker
 
+
+ROAD_USER_LABELS = {
+    "person",
+    "bicycle",
+    "car",
+    "motorcycle",
+    "bus",
+    "truck",
+    "train",
+    "rickshaw",
+    "horse",
+    "sheep",
+    "cow",
+    "elephant",
+    "bear",
+    "zebra",
+    "giraffe",
+}
+IGNORED_FRONT_OBSTACLE_LABELS = {"cell phone"}
+
+
 class VideoProcessor:
     def __init__(
         self,
@@ -21,6 +42,8 @@ class VideoProcessor:
         ensemble_min_model_votes=1,
         inference_image_size=640,
         inference_device=None,
+        detection_dataset="coco",
+        detect_all_coco_objects=True,
     ):
         self.video_path = video_path
         self.window_size = window_size
@@ -56,6 +79,8 @@ class VideoProcessor:
             min_model_votes=ensemble_min_model_votes,
             image_size=inference_image_size,
             device=inference_device,
+            dataset=detection_dataset,
+            detect_all_labels=detect_all_coco_objects,
         )
         self.detector_metadata = self.detector.metadata()
         self.tracker = IoUTracker(
@@ -69,14 +94,15 @@ class VideoProcessor:
         
         self.handheld_phone_frames = 0
         self.mounted_phone_frames = 0
+        self.scene_motion_history = []
 
     def estimate_speed_heuristic(self, frame, prev_gray, elapsed_seconds):
         """
         Calculates speed AND 'erratic_motion' (aggression).
-        Returns: (speed_status, is_erratic)
+        Returns: (speed_status, is_erratic, motion_per_second, variance_per_second)
         """
         if prev_gray is None:
-            return "stationary", False
+            return "stationary", False, 0.0, 0.0
         
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         
@@ -100,10 +126,59 @@ class VideoProcessor:
         is_erratic = variance_per_second > (200.0 * scale**2)
 
         if motion_per_second < (3.0 * scale):
-            return "stationary", False
+            return "stationary", False, float(motion_per_second), float(variance_per_second)
         if motion_per_second < (28.0 * scale):
-            return "slow", is_erratic
-        return "fast", is_erratic
+            return "slow", is_erratic, float(motion_per_second), float(variance_per_second)
+        return "fast", is_erratic, float(motion_per_second), float(variance_per_second)
+
+    def _box_closeness(self, box, frame_width, frame_height):
+        x1, y1, x2, y2 = box
+        width_closeness = (x2 - x1) / (frame_width * 0.8)
+        height_closeness = (y2 - y1) / (frame_height * 0.9)
+        return min(max(width_closeness, height_closeness), 1.0)
+
+    def _is_forward_path(self, detection, frame_width, frame_height):
+        x1, _, x2, y2 = detection.box
+        cx_ratio = ((x1 + x2) / 2) / frame_width
+        bottom_ratio = y2 / frame_height
+        if bottom_ratio < 0.45:
+            return False
+        # Trapezoid-like rider path: narrower far away, wider near the camera.
+        half_width = 0.14 + (0.28 * min(max(bottom_ratio - 0.45, 0.0), 0.55) / 0.55)
+        return abs(cx_ratio - 0.5) <= half_width
+
+    def _is_front_obstacle(self, detection):
+        return detection.label not in IGNORED_FRONT_OBSTACLE_LABELS
+
+    def _detect_traffic_jam(
+        self,
+        detections,
+        speed_status,
+        scene_motion,
+        front_closeness,
+        front_stable_seconds,
+    ):
+        road_users = [d for d in detections if d.label in ROAD_USER_LABELS]
+        dense_scene = len(road_users) >= 4 or len(detections) >= 7
+        low_ego_speed = speed_status in ("stationary", "slow")
+        low_scene_motion = scene_motion < 14.0
+        relative_speeds = [
+            abs(d.relative_speed_proxy)
+            for d in road_users
+            if d.relative_speed_proxy is not None
+        ]
+        low_object_motion = (
+            not relative_speeds
+            or float(np.mean(relative_speeds)) <= 0.04
+        )
+        stable_close = front_closeness > 0.28 and front_stable_seconds >= 2.0
+
+        return bool(
+            dense_scene
+            and low_ego_speed
+            and low_scene_motion
+            and (low_object_motion or stable_close)
+        )
 
     def detect_glare(self, frame):
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -426,11 +501,17 @@ class VideoProcessor:
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             if previous_gray is not None:
                 elapsed = max(timestamp - previous_timestamp, 1 / source_fps)
-                speed_status, is_erratic = self.estimate_speed_heuristic(
+                (
+                    speed_status,
+                    is_erratic,
+                    scene_motion,
+                    motion_variance,
+                ) = self.estimate_speed_heuristic(
                     frame,
                     previous_gray,
                     elapsed,
                 )
+                self.scene_motion_history.append(scene_motion)
                 self.total_frames_processed += 1
                 frame_data.append(
                     self._analyze_single_frame(
@@ -439,6 +520,8 @@ class VideoProcessor:
                         timestamp,
                         speed_status,
                         is_erratic,
+                        scene_motion,
+                        motion_variance,
                     )
                 )
                 if self.max_frames and len(frame_data) >= self.max_frames:
@@ -453,7 +536,14 @@ class VideoProcessor:
         return frame_data
 
     def _analyze_single_frame(
-        self, frame, frame_idx, timestamp, speed_status, is_erratic
+        self,
+        frame,
+        frame_idx,
+        timestamp,
+        speed_status,
+        is_erratic,
+        scene_motion,
+        motion_variance,
     ):
         detections, inference_succeeded, errors = self.detector.predict(frame)
         self.inference_errors.update(errors)
@@ -464,22 +554,53 @@ class VideoProcessor:
             detections,
             timestamp=timestamp,
             frame_width=frame.shape[1],
+            frame_height=frame.shape[0],
         )
+        for detection in detections:
+            detection.in_forward_path = self._is_forward_path(
+                detection, frame.shape[1], frame.shape[0]
+            )
+
         objects_detected = [detection.label for detection in detections]
-        max_closeness = 0.0
+        path_closeness = 0.0
+        side_closeness = 0.0
+        front_relative_speed = 0.0
+        front_stable_seconds = 0.0
+        front_distance_proxy = None
+        front_ttc_seconds = None
         ttc_status = "stable"
         for detection in detections:
-            x1, y1, x2, y2 = detection.box
-            width_closeness = (x2 - x1) / (frame.shape[1] * 0.8)
-            height_closeness = (y2 - y1) / (frame.shape[0] * 0.9)
-            max_closeness = max(
-                max_closeness,
-                min(max(width_closeness, height_closeness), 1.0),
+            closeness = self._box_closeness(
+                detection.box, frame.shape[1], frame.shape[0]
             )
-            if detection.ttc_status == "critical_approach":
-                ttc_status = "critical_approach"
-            elif detection.ttc_status == "closing_in" and ttc_status == "stable":
-                ttc_status = "closing_in"
+            if detection.in_forward_path and self._is_front_obstacle(detection):
+                path_closeness = max(path_closeness, closeness)
+                front_relative_speed = max(
+                    front_relative_speed,
+                    float(detection.relative_speed_proxy or 0.0),
+                )
+                front_stable_seconds = max(
+                    front_stable_seconds,
+                    float(detection.stable_seconds or 0.0),
+                )
+                if detection.distance_proxy is not None:
+                    front_distance_proxy = (
+                        detection.distance_proxy
+                        if front_distance_proxy is None
+                        else min(front_distance_proxy, detection.distance_proxy)
+                    )
+                if detection.ttc_seconds is not None and np.isfinite(detection.ttc_seconds):
+                    front_ttc_seconds = (
+                        detection.ttc_seconds
+                        if front_ttc_seconds is None
+                        else min(front_ttc_seconds, detection.ttc_seconds)
+                    )
+                if detection.ttc_status == "critical_approach":
+                    ttc_status = "critical_approach"
+                elif detection.ttc_status == "closing_in" and ttc_status == "stable":
+                    ttc_status = "closing_in"
+            else:
+                side_closeness = max(side_closeness, closeness)
 
         has_handheld, has_mounted, phone_risk = self.classify_phone_risk(
             detections, frame.shape[1], frame.shape[0]
@@ -501,6 +622,13 @@ class VideoProcessor:
             detections, frame.shape[1], frame.shape[0]
         )
         wet_glare = self.detect_wet_or_glare_surface(frame, is_night)
+        traffic_jam = self._detect_traffic_jam(
+            detections,
+            speed_status,
+            scene_motion,
+            path_closeness,
+            front_stable_seconds,
+        )
         
         late_night_high_speed = (is_night and speed_status == "fast" and len(objects_detected) <= 1)
 
@@ -520,12 +648,30 @@ class VideoProcessor:
                     "ttc_seconds": (
                         round(detection.ttc_seconds, 3)
                         if detection.ttc_seconds is not None
+                        and np.isfinite(detection.ttc_seconds)
                         else None
                     ),
+                    "distance_proxy": (
+                        round(detection.distance_proxy, 4)
+                        if detection.distance_proxy is not None
+                        else None
+                    ),
+                    "relative_speed_proxy": round(detection.relative_speed_proxy, 4),
+                    "stable_seconds": round(detection.stable_seconds, 3),
+                    "in_forward_path": bool(detection.in_forward_path),
                 }
                 for detection in detections
             ],
-            "proximity_score": max_closeness,
+            "proximity_score": path_closeness,
+            "side_proximity_score": side_closeness,
+            "front_distance_proxy": front_distance_proxy,
+            "front_relative_speed_proxy": front_relative_speed,
+            "front_ttc_seconds": front_ttc_seconds,
+            "front_stable_seconds": front_stable_seconds,
+            "traffic_jam": traffic_jam,
+            "traffic_density": len([d for d in detections if d.label in ROAD_USER_LABELS]),
+            "scene_motion": scene_motion,
+            "motion_variance": motion_variance,
             "ego_speed": speed_status,
             "is_erratic": is_erratic,
             "ttc_status": ttc_status,
