@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 
 @dataclass
@@ -25,3 +25,4 @@ class AnalysisResult:
     episode_count: int
     phone_danger_frames: int
     total_samples: int
+    detector_metadata: Dict

@@ -8,6 +8,10 @@ from reporting.report_csv import write_predictions_csv
 from reporting.report_text import write_report
 
 
+def _display_verdict(verdict):
+    return str(verdict).replace("_", " ").title()
+
+
 def get_video_path():
     if len(sys.argv) > 1:
         video_path = sys.argv[1]
@@ -60,6 +64,8 @@ def _save_frames(result):
     safe_count_saved = 0
     caution_count_saved = 0
     danger_count_saved = 0
+    safe_examples = []
+    risk_examples = []
 
     for i, smoothed in enumerate(result.smoothed_predictions):
         frame_info = result.raw_frame_data[i]
@@ -70,24 +76,45 @@ def _save_frames(result):
         filename = f"frame_{int(frame_id):06d}.jpg"
         try:
             if smoothed == 0:
-                cv2.imwrite(os.path.join(safe_frames_dir, filename), frame)
+                path = os.path.join(safe_frames_dir, filename)
+                cv2.imwrite(path, frame)
                 safe_count_saved += 1
+                if len(safe_examples) < 5:
+                    safe_examples.append(path)
             elif smoothed == 1:
-                cv2.imwrite(os.path.join(caution_frames_dir, filename), frame)
+                path = os.path.join(caution_frames_dir, filename)
+                cv2.imwrite(path, frame)
                 caution_count_saved += 1
+                if len(risk_examples) < 5:
+                    risk_examples.append(path)
             else:
-                cv2.imwrite(os.path.join(danger_frames_dir, filename), frame)
+                path = os.path.join(danger_frames_dir, filename)
+                cv2.imwrite(path, frame)
                 danger_count_saved += 1
+                if len(risk_examples) < 5:
+                    risk_examples.append(path)
         except Exception as exc:
             print(f"Warning: could not save frame {frame_id}: {exc}")
 
-    return safe_count_saved, caution_count_saved, danger_count_saved
+    return (
+        safe_count_saved,
+        caution_count_saved,
+        danger_count_saved,
+        safe_examples,
+        risk_examples,
+    )
 
 
 def main():
     video_path = get_video_path()
     output_file = "ride_safety_report.txt"
-    config = PipelineConfig()
+    project_root = os.path.dirname(os.path.abspath(__file__))
+    risk_model_path = os.path.join(project_root, "models", "risk_model.joblib")
+    config = PipelineConfig(
+        structured_risk_model_path=(
+            risk_model_path if os.path.isfile(risk_model_path) else None
+        )
+    )
 
     print("=" * 70)
     print("DHAKA-RIDE SAFETY ANALYZER")
@@ -110,6 +137,14 @@ def main():
     print(
         f"Saved frames -> safe: {saved_counts[0]}, caution: {saved_counts[1]}, danger: {saved_counts[2]}"
     )
+    if saved_counts[3]:
+        print("\nExample safe frames:")
+        for path in saved_counts[3]:
+            print(f"  {path}")
+    if saved_counts[4]:
+        print("\nExample risk frames:")
+        for path in saved_counts[4]:
+            print(f"  {path}")
 
     write_report(result, output_file)
 
@@ -130,7 +165,8 @@ def main():
         f"  Danger:  {result.danger_count}/{result.total_samples} "
         f"({result.danger_count/result.total_samples*100:.1f}%)"
     )
-    print(f"\n{result.verdict}")
+    print(f"\nFinal verdict: {_display_verdict(result.verdict)}")
+    print(f"Reason: {result.verdict_reason}")
 
     if not result.incomplete_analysis:
         print("\nDetection quality: GOOD")
