@@ -64,7 +64,16 @@ python -m pytest -q
 
 Each CLI analysis creates `<video-name>_predictions.csv` with detector-derived
 features and a blank `human_label` column. Label samples as `SAFE`, `CAUTION`,
-or `DANGER`, preserve a unique `ride_id` for every independent ride, then train:
+or `DANGER`, preserve a unique `ride_id` for every independent ride, then first
+measure the rule-based baseline:
+
+```powershell
+python -m training.evaluate_risk_model labeled_ride_*.csv
+```
+
+Blank `human_label` rows are ignored, so you can label the most useful samples
+first instead of completing every frame in one sitting. After you have at least
+three independent rides with all three classes represented, train:
 
 ```powershell
 python -m training.train_risk_model labeled_ride_*.csv `
@@ -72,7 +81,15 @@ python -m training.train_risk_model labeled_ride_*.csv `
 ```
 
 The CLI and dashboard automatically load `models/risk_model.joblib` after the
-training command succeeds. For custom model locations, enable it explicitly:
+training command succeeds. Re-evaluate the trained classifier directly with:
+
+```powershell
+python -m training.evaluate_risk_model labeled_ride_*.csv `
+  --model models\risk_model.joblib `
+  --output models\risk_model.eval.json
+```
+
+For custom model locations, enable it explicitly:
 
 ```python
 PipelineConfig(structured_risk_model_path="models/risk_model.joblib")

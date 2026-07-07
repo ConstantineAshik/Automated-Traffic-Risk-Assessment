@@ -2,7 +2,7 @@
 
 ## 1. Establish the label definition first
 
-Use contiguous 2–5 second events, not isolated images. Assign one risk label:
+Use contiguous 2-5 second events, not isolated images. Assign one risk label:
 
 - `SAFE`: normal riding with adequate response margin
 - `CAUTION`: a hazard is present, but no immediate evasive response is needed
@@ -23,7 +23,7 @@ and video resolutions. Deliberately retain hard negatives:
 - Mounted phones
 - Bright dry roads that resemble wet-road glare
 
-Start with 1,000–3,000 labeled clips from dozens of independent rides. This is
+Start with 1,000-3,000 labeled clips from dozens of independent rides. This is
 a starting target, not a guarantee of adequate coverage.
 
 ## 3. Prevent leakage
@@ -37,14 +37,31 @@ Do not tune thresholds on the final test rides.
 ## 4. Train the risk baseline
 
 Run the CLI once per ride to produce a feature CSV. Give every file a stable,
-unique `ride_id`, fill its `human_label` column, and train with:
+unique `ride_id`, then fill the `human_label` column for the frames or event
+windows you reviewed. Blank labels are ignored by the evaluation/training tools.
+
+Before training, evaluate the current rule-based predictions:
+
+```powershell
+python -m training.evaluate_risk_model ride_001.csv ride_002.csv ride_003.csv
+```
+
+Then train with:
 
 ```powershell
 python -m training.train_risk_model ride_001.csv ride_002.csv ride_003.csv
 ```
 
-The command writes both a Joblib model and a JSON metrics file. The bundled mock
-TF-IDF model is disabled by default and should not be used for accuracy claims.
+The training command writes both a Joblib model and a JSON metrics file. Check
+the trained model against the labeled CSVs with:
+
+```powershell
+python -m training.evaluate_risk_model ride_001.csv ride_002.csv ride_003.csv `
+  --model models\risk_model.joblib
+```
+
+The bundled mock TF-IDF model is disabled by default and should not be used for
+accuracy claims.
 
 ## 5. Evaluate what matters
 
@@ -76,4 +93,4 @@ Record for every checkpoint:
 - Per-class precision, recall, and mAP
 - Performance on the locked Dhaka test set
 
-Only call a checkpoint “Dhaka-trained” when this provenance accompanies it.
+Only call a checkpoint "Dhaka-trained" when this provenance accompanies it.

@@ -23,6 +23,7 @@ from risk_features import CATEGORICAL_FEATURES, FEATURE_COLUMNS, NUMERIC_FEATURE
 
 
 LABEL_MAPPING = {"SAFE": 0, "CAUTION": 1, "DANGER": 2}
+REVERSE_LABEL_MAPPING = {value: key for key, value in LABEL_MAPPING.items()}
 
 
 def _load_tables(paths):
@@ -34,20 +35,40 @@ def _load_tables(paths):
     return pd.concat(tables, ignore_index=True)
 
 
-def _validate(table):
+def _normalize_labels(labels):
+    normalized = labels.map(
+        lambda value: ""
+        if pd.isna(value)
+        else str(value).strip().upper()
+    )
+    numeric_aliases = {"0": "SAFE", "1": "CAUTION", "2": "DANGER"}
+    return normalized.map(lambda value: numeric_aliases.get(value, value))
+
+
+def _validate(table, min_ride_groups=3, require_all_classes=True):
     required = set(FEATURE_COLUMNS) | {"human_label", "ride_id"}
     missing = sorted(required - set(table.columns))
     if missing:
         raise ValueError(f"Missing required columns: {', '.join(missing)}")
-    labels = table["human_label"].astype(str).str.upper()
-    invalid = sorted(set(labels) - set(LABEL_MAPPING))
+
+    labels = _normalize_labels(table["human_label"])
+    invalid = sorted(
+        value for value in set(labels) if value and value not in LABEL_MAPPING
+    )
     if invalid:
         raise ValueError(f"Invalid human_label values: {', '.join(invalid)}")
-    if table["ride_id"].nunique() < 3:
-        raise ValueError("At least three independent ride_id groups are required")
-    if labels.nunique() < 3:
+    labeled_mask = labels.isin(LABEL_MAPPING)
+    table = table.loc[labeled_mask].copy()
+    labels = labels.loc[labeled_mask]
+    if table.empty:
+        raise ValueError("No labeled rows found. Fill human_label before training.")
+    if table["ride_id"].nunique() < min_ride_groups:
+        raise ValueError(
+            f"At least {min_ride_groups} independent ride_id group(s) are required"
+        )
+    if require_all_classes and labels.nunique() < 3:
         raise ValueError("SAFE, CAUTION, and DANGER examples are all required")
-    table = table.copy()
+    table["human_label"] = labels
     table["target"] = labels.map(LABEL_MAPPING)
     return table
 

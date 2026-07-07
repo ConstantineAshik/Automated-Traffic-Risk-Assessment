@@ -1,49 +1,70 @@
-"""
+r"""
 Simple diagnostic helper to evaluate a single synthetic `frame_data` dict:
 - prints the description emitted by `TextGenerator`
 - prints numeric score from `RiskCalculator`
-- prints model prediction from `RiskModel` (trained mock)
+- optionally prints prediction from a trained structured model
 
 Usage:
-  python tools\diagnose_frame.py
+  python tools\diagnose_frame.py --model models\risk_model.joblib
 
 Edit the `sample_frame` dict below to match the suspected frame values.
 """
-import sys
-import os
 import json
+import os
+import sys
+
 # ensure project root is on path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from text_generator import TextGenerator
+
+from risk_features import frame_to_features
 from risk_calculator import RiskCalculator
-from risk_model import RiskModel
+from structured_risk_model import StructuredRiskModel
+from text_generator import TextGenerator
 
 
-def diagnose(frame_data):
+LABELS = {0: "SAFE", 1: "CAUTION", 2: "DANGER"}
+
+
+def diagnose(frame_data, model_path=None):
     tg = TextGenerator()
     rc = RiskCalculator()
-    rm = RiskModel()
-    rm.train_mock_model()
 
     desc = tg.generate_description(frame_data)
     speed_cat = frame_data.get("ego_speed", "slow")
-    if speed_cat == "fast":
-        speed_cat_mapped = "moderate"
-    else:
-        speed_cat_mapped = speed_cat
-
-    score = rc.calculate_risk_score(frame_data, speed_cat_mapped)
-    model_pred = rm.predict_risk([desc])[0]
+    score = rc.calculate_risk_score(frame_data, speed_cat)
 
     print("DESCRIPTION:")
     print(desc)
     print()
+    print("FEATURES:")
+    print(json.dumps(frame_to_features(frame_data), indent=2))
+    print()
     print("NUMERIC SCORE:", score)
     print("NUMERIC LABEL:", rc.score_to_label(score))
-    print("MODEL PRED:", model_pred, "->", rm.interpret_risk(model_pred))
+    if model_path:
+        model = StructuredRiskModel(model_path)
+        prediction = model.predict([frame_data])[0]
+        print("STRUCTURED MODEL:", prediction, "->", LABELS[prediction])
+        try:
+            probabilities = model.predict_proba([frame_data])[0]
+            print(
+                "MODEL PROBABILITIES:",
+                {
+                    LABELS[index]: round(float(value), 4)
+                    for index, value in enumerate(probabilities)
+                },
+            )
+        except AttributeError:
+            pass
 
 
 if __name__ == '__main__':
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", help="Optional trained models/risk_model.joblib")
+    args = parser.parse_args()
+
     # Example 1: sample frame with elevated risks
     sample_frame_1 = {
         "ego_speed": "fast",
@@ -57,7 +78,7 @@ if __name__ == '__main__':
     }
 
     print("\n--- Diagnosis: SAMPLE FRAME 1 ---\n")
-    diagnose(sample_frame_1)
+    diagnose(sample_frame_1, args.model)
 
     # Example 2: sample frame with lower risk signals
     sample_frame_2 = {
@@ -72,4 +93,4 @@ if __name__ == '__main__':
     }
 
     print("\n--- Diagnosis: SAMPLE FRAME 2 ---\n")
-    diagnose(sample_frame_2)
+    diagnose(sample_frame_2, args.model)
